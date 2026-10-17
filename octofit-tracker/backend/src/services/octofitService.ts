@@ -9,23 +9,7 @@ export async function createActivity(input: unknown) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw Object.assign(new Error('Activity input must be an object'), { status: 400 });
   }
-  let activityInput = input as Record<string, unknown>;
-  if (Object.keys(activityInput).length === 0) {
-    const [defaultUser, defaultTeam] = await Promise.all([
-      User.findOne({ email: 'mona@example.com' }).select('_id'),
-      Team.findOne({ name: 'Octocats' }).select('_id'),
-    ]);
-    if (!defaultUser || !defaultTeam) {
-      throw Object.assign(new Error('Default activity fixtures were not found'), { status: 404 });
-    }
-    activityInput = {
-      userId: defaultUser._id.toString(),
-      teamId: defaultTeam._id.toString(),
-      type: 'walk',
-      minutes: 1,
-    };
-  }
-  const { userId, teamId, type, minutes } = activityInput;
+  const { userId, teamId, type, minutes } = input as Record<string, unknown>;
   if (
     typeof userId !== 'string' ||
     !Types.ObjectId.isValid(userId) ||
@@ -89,11 +73,41 @@ export async function createTeam(input: unknown) {
 }
 
 export async function getLeaderboard() {
-  return [];
+  const totals = await Activity.aggregate<{ team: Types.ObjectId; teamName: string; totalPoints: number }>([
+    { $group: { _id: '$team', totalPoints: { $sum: '$points' } } },
+    { $lookup: { from: Team.collection.name, localField: '_id', foreignField: '_id', as: 'team' } },
+    { $unwind: '$team' },
+    { $project: { _id: 0, team: '$team._id', teamName: '$team.name', totalPoints: 1 } },
+    { $sort: { totalPoints: -1, teamName: 1 } },
+  ]);
+  return totals.map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
 
-export async function suggestWorkouts(_userEmail: string) {
-  return Workout.find().limit(1).lean();
+export async function suggestWorkouts(userEmail: string) {
+  const user = await User.findOne({ email: userEmail }).select('fitnessGoal');
+  if (!user) {
+    throw Object.assign(new Error('User was not found'), { status: 404 });
+  }
+
+  const [recentActivity, workouts] = await Promise.all([
+    Activity.findOne({ user: user._id }).sort({ occurredAt: -1 }).select('type'),
+    Workout.find().lean(),
+  ]);
+  const goal = user.fitnessGoal.trim().toLowerCase();
+  const activityType = recentActivity?.type.trim().toLowerCase();
+  const focus = workouts.some((workout) => workout.focus.toLowerCase() === goal)
+    ? goal
+    : activityType === 'strength'
+      ? 'strength'
+      : activityType
+        ? 'endurance'
+        : goal;
+  const matching = workouts.filter((workout) => workout.focus.toLowerCase() === focus);
+  const suggestions = matching.length > 0 ? matching : workouts;
+  const reason = activityType
+    ? `Recommended for your ${goal} goal and recent ${activityType} activity.`
+    : `Recommended for your ${goal} fitness goal.`;
+  return suggestions.map((workout) => ({ ...workout, reason }));
 }
 
 export { User };
