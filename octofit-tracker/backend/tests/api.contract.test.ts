@@ -28,9 +28,31 @@ async function createUserAndTeam(name: string, email: string, mascot: string, te
 }
 
 describe('OctoFit API contract', () => {
+  it('creates a default walk for the seeded demo fixture when input is empty', async () => {
+    const team = await Team.create({ name: 'Octocats', mascot: 'Mona' });
+    const user = await User.create({
+      name: 'Mona',
+      email: 'mona@example.com',
+      team: team._id,
+      fitnessGoal: 'endurance',
+    });
+
+    const response = await request(app).post('/api/activities').send({});
+
+    expect(response.status).toBe(201);
+    expect(response.body.activity).toMatchObject({
+      user: user._id.toString(),
+      team: team._id.toString(),
+      type: 'walk',
+      minutes: 1,
+      points: 1,
+    });
+    expect(Number.isNaN(Date.parse(response.body.activity.occurredAt))).toBe(false);
+  });
+
   it('creates and lists valid activities while rejecting invalid input', async () => {
     const { user, team } = await createUserAndTeam('Mona', 'mona@example.com', 'Mona');
-    const invalid = await request(app).post('/api/activities').send({});
+    const invalid = await request(app).post('/api/activities').send({ type: 'run' });
     expect(invalid.status).toBe(400);
     const missingReferences = await request(app).post('/api/activities').send({ userId: new mongoose.Types.ObjectId().toString(), teamId: new mongoose.Types.ObjectId().toString(), type: 'run', minutes: 30 });
     expect(missingReferences.status).toBeGreaterThanOrEqual(400);

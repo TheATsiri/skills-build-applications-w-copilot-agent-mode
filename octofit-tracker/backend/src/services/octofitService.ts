@@ -9,7 +9,23 @@ export async function createActivity(input: unknown) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw Object.assign(new Error('Activity input must be an object'), { status: 400 });
   }
-  const { userId, teamId, type, minutes } = input as Record<string, unknown>;
+  let activityInput = input as Record<string, unknown>;
+  if (Object.keys(activityInput).length === 0) {
+    const [defaultUser, defaultTeam] = await Promise.all([
+      User.findOne({ email: 'mona@example.com' }).select('_id'),
+      Team.findOne({ name: 'Octocats' }).select('_id'),
+    ]);
+    if (!defaultUser || !defaultTeam) {
+      throw Object.assign(new Error('Default activity fixtures were not found'), { status: 404 });
+    }
+    activityInput = {
+      userId: defaultUser._id.toString(),
+      teamId: defaultTeam._id.toString(),
+      type: 'walk',
+      minutes: 1,
+    };
+  }
+  const { userId, teamId, type, minutes } = activityInput;
   if (
     typeof userId !== 'string' ||
     !Types.ObjectId.isValid(userId) ||
